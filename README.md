@@ -43,6 +43,40 @@ Just execute ``jpeg2png picture.jpg`` to create ``picture.png``. Execute ``jpeg2
 
 Under Windows, you can also drag-and-drop JPEG files onto the program.
 
+### PNG files with a JPEG inside
+jpeg2png can also read PNG files. A PNG that was made from a JPEG (a
+decoded JPEG saved as PNG, a screenshot of a JPEG, or a lossy WebP that was
+made from a JPEG and decoded with [webp2png](https://github.com/ThioJoe/webp2png))
+still carries the JPEG's block structure: every 8x8 DCT coefficient of the
+picture is (close to) a multiple of the quantization step that was used.
+jpeg2png finds the 8x8 block grid (the picture may have been cropped), the
+quality factor (assuming the standard IJG quantization tables, which almost
+every encoder uses) and the chroma subsampling (4:2:0 or 4:4:4) from the
+picture itself, and then runs the usual smoothing with those tables.
+
+    jpeg2png picture.png
+
+writes ``picture.restored.png`` and prints what was detected, for example
+``JPEG grid at (0,0), quality ~75, chroma 4:2:0, score 0.53``. The score is
+the certainty of the detection; a PNG without JPEG history is rejected
+(``no JPEG structure found``). ``-J`` forces a quality factor,
+``--jpeg-grid`` a grid offset and ``--jpeg-subsampling`` the chroma
+subsampling when the estimate is wrong.
+
+The recovered coefficients are exact for photographs. In pictures with a lot
+of saturated colours the decoder's clipping to 0..255 hides some of them;
+jpeg2png recovers most of these blocks too, but the result can be a little
+worse than from the original JPEG file. When the JPEG structure was blurred
+by a later lossy step (a WebP conversion, a rescale) the estimate becomes
+approximate and the detection can fail at high JPEG qualities; a picture that
+was rescaled after the JPEG stage has no usable block structure left.
+
+For a lossy WebP that was made from a JPEG, first decode it with webp2png and
+then run jpeg2png on the result:
+
+    webp2png picture.webp
+    jpeg2png picture.png
+
 jpeg2png gives best results for pictures that should never be saved as JPEG.
 Examples are charts, logo's, and cartoon-style digital drawings.
 

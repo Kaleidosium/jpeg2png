@@ -12,6 +12,7 @@
 #include "utils.h"
 #include "jpeg.h"
 #include "png.h"
+#include "pngin.h"
 #include "box.h"
 #include "compute.h"
 #include "logger.h"
@@ -92,6 +93,19 @@ noreturn static void usage() {
                 "\tdefault: number of CPUs\n"
                 "\n");
         printf(
+                "-J quality\n"
+                "--jpeg-quality quality\n"
+                "\tPNG input: assume this IJG JPEG quality factor (1..100) instead of estimating it\n"
+                "\tPNG files are read as pictures that contain a decoded JPEG (for example\n"
+                "\ta JPEG that was converted to PNG or WebP); the 8x8 grid, the quantization\n"
+                "\ttables and the chroma subsampling are estimated from the picture itself\n"
+                "\n"
+                "--jpeg-grid x,y\n"
+                "\tPNG input: assume this offset of the 8x8 block grid (0..7) instead of estimating it\n"
+                "\n"
+                "--jpeg-subsampling 444|420\n"
+                "\tPNG input: assume this chroma subsampling instead of estimating it\n"
+                "\n"
                 "-1\n"
                 "--16-bits-png\n"
                 "\toutput PNG with 16 bits color depth instead of the usual 8 bits\n"
@@ -116,15 +130,29 @@ noreturn static void usage() {
         exit(EXIT_FAILURE);
 }
 
+static struct pngin_options png_options;
+
 // decode a single JPEG file smoothly
 void decode_file(const char* infile, const char *outfile, unsigned iterations[3], float weights[3], float pweights[3], unsigned png_bits, bool all_together, struct progressbar *pb, struct logger *plog) {
         // decode jpg normally
         FILE *in = fopen(infile, "rb");
         if(!in) { die_perror("could not open input file `%s`", infile); }
         struct jpeg jpeg;
-        read_jpeg(in, &jpeg);
+        struct pngin_result pngres = {0};
+        bool is_png = pngin_is_png(in);
+        if(is_png) {
+                // a PNG with a JPEG inside: estimate the JPEG's parameters
+                if(!read_png_jpeg(in, &jpeg, &png_options, &pngres)) {
+                        die("no JPEG structure found in `%s` (score %.2f); use -J to force a quality factor", infile, pngres.score);
+                }
+                if(pb) { progressbar_clear(pb); }
+                fprintf(stderr, "jpeg2png: %s: JPEG grid at (%u,%u), quality ~%u, chroma %s, score %.2f\n", infile,
+                        pngres.grid_x, pngres.grid_y, pngres.quality, pngres.subsampling == 2 ? "4:2:0" : "4:4:4", pngres.score);
+        } else {
+                read_jpeg(in, &jpeg);
+        }
         fclose(in);
-        for(unsigned c = 0; c < jpeg.c; c++) {
+        for(unsigned c = 0; c < jpeg.c && !is_png; c++) {
                 struct coef *coef = &jpeg.coefs[c];
                 decode_coefficients(coef);
         }
@@ -162,9 +190,9 @@ void decode_file(const char* infile, const char *outfile, unsigned iterations[3]
         FILE *out = fopen(outfile, "wb");
         if(!out) { die_perror("could not open output file `%s`", outfile); }
         if (jpeg.c == 3)
-          write_png(out, jpeg.w, jpeg.h, png_bits, &jpeg.coefs[0], &jpeg.coefs[1], &jpeg.coefs[2]);
+          write_png(out, jpeg.w, jpeg.h, png_bits, &jpeg.coefs[0], &jpeg.coefs[1], &jpeg.coefs[2], pngres.x0, pngres.y0, pngres.alpha);
         else
-          write_png(out, jpeg.w, jpeg.h, png_bits, &jpeg.coefs[0], NULL, NULL);
+          write_png(out, jpeg.w, jpeg.h, png_bits, &jpeg.coefs[0], NULL, NULL, pngres.x0, pngres.y0, pngres.alpha);
         fclose(out);
 
         // clean up
@@ -172,6 +200,7 @@ void decode_file(const char* infile, const char *outfile, unsigned iterations[3]
                 free_simd(jpeg.coefs[i].fdata);
                 free(jpeg.coefs[i].data);
         }
+        free(pngres.alpha);
 }
 
 
@@ -191,6 +220,9 @@ int main(int argc, const char **argv) {
                 gopt_option('q', GOPT_NOARG, gopt_shorts('q'), gopt_longs("quiet")),
                 gopt_option('s', GOPT_NOARG, gopt_shorts('s'), gopt_longs("separate-components")),
                 gopt_option('1', GOPT_NOARG, gopt_shorts('1'), gopt_longs("16-bits-png")),
+                gopt_option('J', GOPT_ARG, gopt_shorts('J'), gopt_longs("jpeg-quality")),
+                gopt_option('G', GOPT_ARG, gopt_shorts(0), gopt_longs("jpeg-grid")),
+                gopt_option('S', GOPT_ARG, gopt_shorts(0), gopt_longs("jpeg-subsampling")),
                 gopt_option('i', GOPT_ARG, gopt_shorts('i'), gopt_longs("iterations")),
                 gopt_option('p', GOPT_ARG, gopt_shorts('p'), gopt_longs("probability-weight")),
                 gopt_option('w', GOPT_ARG, gopt_shorts('w'), gopt_longs("second-order-weight"))));
@@ -259,6 +291,29 @@ int main(int argc, const char **argv) {
 #endif
         }
 
+        pngin_default_options(&png_options);
+        if(gopt_arg(options, 'J', &arg_string)) {
+                int n = sscanf(arg_string, "%d", &png_options.quality);
+                if(n != 1 || png_options.quality < 1 || png_options.quality > 100) {
+                        die("invalid jpeg quality");
+                }
+        }
+        if(gopt_arg(options, 'G', &arg_string)) {
+                int n = sscanf(arg_string, "%d,%d", &png_options.grid_x, &png_options.grid_y);
+                if(n != 2 || png_options.grid_x < 0 || png_options.grid_x > 7 || png_options.grid_y < 0 || png_options.grid_y > 7) {
+                        die("invalid jpeg grid offset");
+                }
+        }
+        if(gopt_arg(options, 'S', &arg_string)) {
+                if(strcmp(arg_string, "444") == 0) {
+                        png_options.subsampling = 1;
+                } else if(strcmp(arg_string, "420") == 0) {
+                        png_options.subsampling = 2;
+                } else {
+                        die("invalid jpeg subsampling, use 444 or 420");
+                }
+        }
+
         FILE *csv_log = NULL;
         if(gopt_arg(options, 'c', &arg_string)) {
                 csv_log = fopen(arg_string, "wb");
@@ -293,15 +348,20 @@ int main(int argc, const char **argv) {
 
                         unsigned l = strlen(infile);
                         unsigned e = l;
+                        const char *suffix = ".png";
                         if(l >= 5 && memcmp(".jpeg", &infile[l-5], 5) == 0) {
                                 e = l-5;
                         } else if(l >= 4 && memcmp(".jpg", &infile[l-4], 4) == 0) {
                                 e = l-4;
+                        } else if(l >= 4 && memcmp(".png", &infile[l-4], 4) == 0) {
+                                // PNG input: don't overwrite the input file
+                                e = l-4;
+                                suffix = ".restored.png";
                         }
-                        char *outfile = malloc(e + 4 + 1);
+                        char *outfile = malloc(e + strlen(suffix) + 1);
                         if(!outfile) { die("could not allocate outfile"); }
                         memcpy(outfile, infile, e);
-                        memcpy(outfile+e, ".png", 5);
+                        memcpy(outfile+e, suffix, strlen(suffix) + 1);
 
                         if(!nout && !force) {
                                 // don't overwrite when not given -o or -f, racy
