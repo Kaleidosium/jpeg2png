@@ -1,0 +1,130 @@
+# Builds jpeg2png for Windows (64-bit, statically linked, MSYS2) and Linux,
+# uploads the executables as artifacts, and then runs the tests.
+#
+# The workflow only runs when started manually ("Run workflow" button / API) or
+# when a commit message contains the keyword [!Build].
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+jobs:
+  windows:
+    name: Windows x64 (MSYS2 UCRT64, static)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[!Build]')
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-ccache
+            make
+
+      - name: Cache compiler output (ccache)
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-windows-ucrt64-${{ github.sha }}
+          restore-keys: |
+            ccache-windows-ucrt64-
+
+      - name: Build
+        run: |
+          make WINDOWS=1 HOST= CC="ccache gcc" -j4
+          ccache -s
+          ls -la jpeg2png.exe
+
+      - name: Smoke test and DLL dependency check
+        run: |
+          ./jpeg2png.exe --version || true
+          ./jpeg2png.exe --help > /dev/null || true
+          objdump -p jpeg2png.exe | grep "DLL Name"
+          if objdump -p jpeg2png.exe | grep "DLL Name" | grep -iv "kernel32\|msvcrt\|ucrtbase\|api-ms-win\|shell32\|user32\|advapi32"; then
+            echo "unexpected DLL dependency"; exit 1
+          fi
+
+      - name: Collect files
+        run: |
+          mkdir -p dist
+          cp jpeg2png.exe README.md LICENSE dist/
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: jpeg2png-windows-x64
+          path: dist/
+          if-no-files-found: error
+
+      - name: Run tests
+        run: tests/run_tests.sh ./jpeg2png.exe test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-windows
+          path: test-results/
+
+  linux:
+    name: Linux x64
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[!Build]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-dev libpng-dev ccache
+
+      - name: Cache compiler output (ccache)
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-linux-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-
+
+      - name: Build
+        run: |
+          make CC="ccache gcc" -j4
+          ccache -s
+
+      - name: Collect files
+        run: |
+          mkdir -p dist
+          cp jpeg2png README.md LICENSE dist/
+
+      - name: Upload Linux executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: jpeg2png-linux-x64
+          path: dist/
+          if-no-files-found: error
+
+      - name: Run tests
+        run: tests/run_tests.sh ./jpeg2png test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-linux
+          path: test-results/
