@@ -19,7 +19,6 @@ WINDOWS=0
 
 # VARIABLES
 CFLAGS+=-std=c11 -pedantic
-CFLAGS+=-msse2 -mfpmath=sse
 CFLAGS+=-g
 WARN_FLAGS+=-Wall -Wextra -Winline -Wshadow
 NO_WARN_FLAGS+=-w
@@ -30,7 +29,7 @@ ifeq ($(WINDRES),)
 WINDRES=$(HOST)windres
 endif
 LIBS+=-ljpeg -lpng -lm -lz
-OBJS+=jpeg2png.o utils.o jpeg.o png.o box.o compute.o logger.o progressbar.o fp_exceptions.o gopt/gopt.o ooura/dct.o
+OBJS+=jpeg2png.o utils.o jpeg.o png.o pngin.o box.o compute.o logger.o progressbar.o fp_exceptions.o gopt/gopt.o ooura/dct.o
 HOST=
 EXE=
 
@@ -55,7 +54,7 @@ endif
 # Apply specific flags when CC is clang
 ifeq ($(CC),clang)
     BFLAGS += -fopenmp=libomp
-    LIBS += -ljpeg -lpng -lm -lz -lpsapi
+    LIBS += -ljpeg -lpng -lm -lz
 endif
 
 ifeq ($(BUILTINS),1)
@@ -70,6 +69,7 @@ endif
 
 ifeq ($(SIMD),1)
 CFLAGS+=-DUSE_SIMD
+CFLAGS+=-msse2 -mfpmath=sse
 endif
 
 ifeq ($(OPENMP),1)
