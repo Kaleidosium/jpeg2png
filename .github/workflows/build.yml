@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - '**'
+      - "**"
 
 env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -24,7 +24,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
@@ -40,7 +40,7 @@ jobs:
             diffutils
 
       - name: Cache compiler output (ccache)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .ccache
           key: ccache-windows-ucrt64-${{ github.sha }}
@@ -68,7 +68,7 @@ jobs:
           cp jpeg2png.exe README.md LICENSE dist/
 
       - name: Upload Windows executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jpeg2png-windows-x64
           path: dist/
@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-windows
           path: test-results/
@@ -90,13 +90,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libjpeg-dev libpng-dev ccache
 
       - name: Cache compiler output (ccache)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .ccache
           key: ccache-linux-${{ github.sha }}
@@ -114,7 +114,7 @@ jobs:
           cp jpeg2png README.md LICENSE dist/
 
       - name: Upload Linux executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jpeg2png-linux-x64
           path: dist/
@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-linux
           path: test-results/
