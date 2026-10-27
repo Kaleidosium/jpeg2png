@@ -37,6 +37,7 @@ jobs:
             mingw-w64-ucrt-x86_64-libpng
             mingw-w64-ucrt-x86_64-ccache
             make
+            diffutils
 
       - name: Cache compiler output (ccache)
         uses: actions/cache@v4
